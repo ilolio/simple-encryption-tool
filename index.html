@@ -247,17 +247,23 @@
             }
 
             let blob;
-            const fileName = generateFileName(originalFileName, isEncrypted);
+            let fileName = generateFileName(originalFileName, isEncrypted);
 
             try {
-                if (currentFileType === 'binary') {
-                    // 共通関数を使用してBase64をArrayBufferに変換
-                    const arrayBuffer = base64ToArrayBuffer(outputText);
-                    const mimeType = getMimeTypeFromExtension(fileExtension);
-                    blob = new Blob([arrayBuffer], { type: mimeType });
-                } else {
-                    // テキストファイルとして保存
+                if (isEncrypted) {
+                    // 暗号化時は常にテキストとして保存（暗号文はテキスト）
                     blob = new Blob([outputText], { type: 'text/plain' });
+                    fileName = fileName + '.enc'; // 暗号化ファイル名に.encを追加
+                } else {
+                    // 復号時のみバイナリ復元（data:...;base64, 形式の場合）
+                    if (currentFileType === 'binary' && outputText.startsWith('data:') && outputText.indexOf(';base64,') !== -1) {
+                        const arrayBuffer = base64ToArrayBuffer(outputText);
+                        const mimeType = getMimeTypeFromExtension(fileExtension);
+                        blob = new Blob([arrayBuffer], { type: mimeType });
+                    } else {
+                        // テキストファイルとして保存
+                        blob = new Blob([outputText], { type: 'text/plain' });
+                    }
                 }
             } catch (e) {
                 alert(e.message);
