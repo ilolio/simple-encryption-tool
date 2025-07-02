@@ -253,7 +253,7 @@
                 if (isEncrypted) {
                     // 暗号化時は常にテキストとして保存（暗号文はテキスト）
                     blob = new Blob([outputText], { type: 'text/plain' });
-                    fileName = fileName + '.enc'; // 暗号化ファイル名に.encを追加
+                    fileName = fileName + '.txt'; // 暗号化ファイル名に.txtを追加
                 } else {
                     // 復号時のみバイナリ復元（data:...;base64, 形式の場合）
                     if (currentFileType === 'binary' && outputText.startsWith('data:') && outputText.indexOf(';base64,') !== -1) {
