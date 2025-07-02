@@ -5,9 +5,12 @@
     <title>簡易暗号化ツール</title>
     <style>
         body { font-family: sans-serif; margin: 20px; }
-        textarea, input[type="text"], input[type="password"] { width: 100%; padding: 10px; margin: 5px 0; box-sizing: border-box; }
+        textarea, input[type="text"], input[type="password"], input[type="file"] { width: 100%; padding: 10px; margin: 5px 0; box-sizing: border-box; }
         button { padding: 10px 20px; margin: 5px 0; cursor: pointer; }
         .copy-button { margin-left: 5px; }
+        .download-button { margin-left: 5px; }
+        .file-input { border: 1px solid #ccc; border-radius: 4px; }
+        .file-info { color: #666; margin: 5px 0; }
     </style>
 </head>
 <body>
@@ -17,15 +20,62 @@
     <br>
     <label for="inputText">テキスト:</label><br>
     <textarea id="inputText" rows="5" placeholder="暗号化/復号するテキスト"></textarea><br>
+    <input type="file" id="fileInput" class="file-input">
+    <div id="fileInfo" class="file-info"></div>
+    <br>
 
     <button onclick="encryptText()">暗号化</button>
-    <button onclick="decryptText()">復号化</button><br>
-
-    <label for="outputText">結果:</label><br>
+    <button onclick="decryptText()">復号化</button>
+    <br>
+    
+    <label for="outputText">結果:</label>
+    <br>
     <textarea id="outputText" rows="5" readonly></textarea>
     <button class="copy-button" onclick="copyOutput()">コピー</button>
+    <button class="download-button" onclick="downloadResult()">ダウンロード</button>
 
     <script>
+        let currentFileType = 'text';
+        let originalFileName = '';
+        let fileExtension = '';
+        let isEncrypted = false; // 暗号化状態を追跡
+
+        // ファイル処理関数
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                originalFileName = file.name;
+                fileExtension = originalFileName.split('.').pop();
+                const reader = new FileReader();
+
+                // ファイルの種類を判定
+                if (file.type.startsWith('text/') || file.name.match(/\.(txt|csv|json|xml|html|css|js|ts|md)$/i)) {
+                    currentFileType = 'text';
+                    reader.onload = function(e) {
+                        document.getElementById('inputText').value = e.target.result;
+                    };
+                    reader.readAsText(file);
+                } else {
+                    currentFileType = 'binary';
+                    reader.onload = function(e) {
+                        document.getElementById('inputText').value = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }
+
+                // ファイル情報を表示
+                document.getElementById('fileInfo').textContent = `ファイル: ${file.name} (${formatFileSize(file.size)})`;
+            }
+        });
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
         function encrypt_string(text, key) {
             try {
                 const salt = CryptoJS.lib.WordArray.random(128/8); // 128-bit salt
@@ -64,12 +114,13 @@
             const key = document.getElementById('key').value;
 
             if (!text || !key) {
-                alert('テキストと鍵を入力してください。');
+                alert('データと鍵を入力してください。');
                 return;
             }
 
             const encrypted = encrypt_string(text, key);
             document.getElementById('outputText').value = encrypted;
+            isEncrypted = true; // 暗号化状態をセット
         }
 
         function decryptText() {
@@ -83,12 +134,121 @@
 
             const decrypted = decrypt_string(encrypted, key);
             document.getElementById('outputText').value = decrypted;
+            isEncrypted = false; // 復号状態をセット
+
+            // data:...;base64, 形式ならバイナリ扱い
+            if (decrypted.startsWith('data:') && decrypted.indexOf(';base64,') !== -1) {
+                currentFileType = 'binary';
+                // MIMEタイプと拡張子を推定
+                const mimeMatch = decrypted.match(/^data:([\w\-\/]+);base64,/);
+                let mimeType = 'application/octet-stream';
+                let ext = '';
+                if (mimeMatch) {
+                    mimeType = mimeMatch[1];
+                    // 拡張子推定
+                    if (mimeType === 'application/pdf') ext = 'pdf';
+                    else if (mimeType === 'image/png') ext = 'png';
+                    else if (mimeType === 'image/jpeg') ext = 'jpg';
+                    else if (mimeType === 'image/gif') ext = 'gif';
+                    else if (mimeType === 'application/zip') ext = 'zip';
+                    else if (mimeType === 'application/x-7z-compressed' || mimeType === 'application/x-compressed') ext = '7z';
+                }
+                fileExtension = ext;
+                // ファイル名がなければ仮名
+                if (!originalFileName) {
+                    originalFileName = `output.${ext || 'bin'}`;
+                }
+            } else {
+                currentFileType = 'text';
+            }
         }
 
         function copyOutput() {
             const outputText = document.getElementById('outputText');
             outputText.select();
             document.execCommand('copy');
+        }
+
+        function downloadResult() {
+            const outputText = document.getElementById('outputText').value;
+            if (!outputText) {
+                alert('ダウンロードするデータがありません。');
+                return;
+            }
+
+            let blob;
+            let fileName;
+
+            if (currentFileType === 'binary') {
+                if (isEncrypted) {
+                    // 暗号化時はBase64データとして保存
+                    try {
+                        const byteString = atob(outputText.split(',')[1]);
+                        const arrayBuffer = new ArrayBuffer(byteString.length);
+                        const uint8Array = new Uint8Array(arrayBuffer);
+                        for (let i = 0; i < byteString.length; i++) {
+                            uint8Array[i] = byteString.charCodeAt(i);
+                        }
+                        blob = new Blob([arrayBuffer]);
+                    } catch (e) {
+                        alert('バイナリデータの処理に失敗しました。');
+                        return;
+                    }
+                } else {
+                    // 復号時はBase64文字列からバイナリ復元
+                    try {
+                        // outputTextがBase64文字列であることを想定
+                        let base64 = outputText;
+                        // 先頭にdata:...;base64,が付いていれば除去
+                        if (base64.indexOf(',') !== -1) {
+                            base64 = base64.split(',')[1];
+                        }
+                        const byteString = atob(base64);
+                        const arrayBuffer = new ArrayBuffer(byteString.length);
+                        const uint8Array = new Uint8Array(arrayBuffer);
+                        for (let i = 0; i < byteString.length; i++) {
+                            uint8Array[i] = byteString.charCodeAt(i);
+                        }
+                        // MIMEタイプ推定（拡張子から）
+                        let mimeType = 'application/octet-stream';
+                        if (fileExtension) {
+                            const ext = fileExtension.toLowerCase();
+                            if (ext === 'png') mimeType = 'image/png';
+                            else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+                            else if (ext === 'pdf') mimeType = 'application/pdf';
+                            else if (ext === 'gif') mimeType = 'image/gif';
+                            // 必要に応じて追加
+                        }
+                        blob = new Blob([arrayBuffer], { type: mimeType });
+                    } catch (e) {
+                        alert('バイナリデータの復号に失敗しました。');
+                        return;
+                    }
+                }
+            } else {
+                // テキストファイルとして保存
+                blob = new Blob([outputText], { type: 'text/plain' });
+            }
+
+            // ファイル名の設定
+            if (isEncrypted) {
+                fileName = `encrypted_${originalFileName || 'output.txt'}`;
+            } else {
+                // 復号時は'encrypted_'プレフィックスを削除
+                const baseName = originalFileName || 'output.txt';
+                fileName = baseName.startsWith('encrypted_') ? 
+                    baseName.substring(10) : 
+                    `decrypted_${baseName}`;
+            }
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
